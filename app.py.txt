@@ -1,0 +1,100 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+
+# Configuración de la página web
+st.set_page_config(page_title="Dashboard de Crédito interactivo", layout="wide")
+
+st.title("📊 Simulador de Crédito y Amortización")
+st.markdown("Use este panel para evaluar las condiciones del crédito y el retorno para el prestamista.")
+st.markdown("---")
+
+# --- PANEL IZQUIERDO: INPUTS EDITABLES ---
+st.sidebar.header("⚙️ Parámetros del Crédito")
+monto = st.sidebar.number_input("Monto a prestar ($):", min_value=100000, value=10000000, step=50000)
+tasa_mensual_pct = st.sidebar.number_input("Tasa de interés mensual (%):", min_value=0.1, max_value=10.0, value=2.0, step=0.1)
+cuota_fija = st.sidebar.number_input("Cuota fija mensual ($):", min_value=10000, value=500000, step=10000)
+
+tasa_mensual = tasa_mensual_pct / 100
+
+# Validar que la cuota cubra al menos el interés del primer mes
+interes_primer_mes = monto * tasa_mensual
+if cuota_fija <= interes_primer_mes:
+    st.error(f"⚠️ La cuota mensual (${cuota_fija:,.0f}) debe ser mayor al interés del primer mes (${interes_primer_mes:,.0f}) para poder amortizar el capital.")
+else:
+    # --- CÁLCULO DE LA TABLA DE AMORTIZACIÓN ---
+    saldo = monto
+    datos_amortizacion = []
+    mes = 1
+    
+    # Límite de seguridad de 360 meses (30 años) por si acaso
+    while saldo > 0.01 and mes <= 360:
+        interes_mes = saldo * tasa_mensual
+        
+        # Si el saldo restante + interés es menor que la cuota, la última cuota se ajusta
+        if (saldo + interes_mes) < cuota_fija:
+            cuota_actual = saldo + interes_mes
+            abono_capital = saldo
+            saldo_final = 0
+        else:
+            cuota_actual = cuota_fija
+            abono_capital = cuota_actual - interes_mes
+            saldo_final = saldo - abono_capital
+            
+        datos_amortizacion.append({
+            "Mes": mes,
+            "Cuota Fija": round(cuota_actual, 2),
+            "Interés del Mes": round(interes_mes, 2),
+            "Abono a Capital": round(abono_capital, 2),
+            "Saldo Restante": round(saldo_final, 2)
+        })
+        
+        saldo = saldo_final
+        mes += 1
+
+    df = pd.DataFrame(datos_amortizacion)
+    
+    # --- CÁLCULOS DEL RESUMEN CONSOLIDADO ---
+    total_meses = len(df)
+    total_anios = total_meses / 12
+    total_pagado = df["Cuota Fija"].sum()
+    total_intereses = df["Interés del Mes"].sum()
+    porcentaje_ganancia = (total_intereses / monto) * 100
+
+    # --- PANEL CENTRAL: MÉTRICAS CLAVE (KPIs) ---
+    st.subheader("📈 Resumen Consolidado para el Prestamista")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric(label="Tiempo de Pago", value=f"{total_meses} meses", delta=f"{total_anios:.1f} años")
+    with col2:
+        st.metric(label="Total Intereses Ganados", value=f"${total_intereses:,.0f}", delta="Ganancia Neta")
+    with col3:
+        st.metric(label="Rendimiento sobre Capital (ROI)", value=f"{porcentaje_ganancia:.2f} %")
+
+    col4, col5 = st.columns(2)
+    with col4:
+        st.info(f"💰 **Total a Retornar al Prestamista:** ${total_pagado:,.0f}")
+    with col5:
+        st.success(f"💵 **Capital Inicial Invertido:** ${monto:,.0f}")
+
+    st.markdown("---")
+
+    # --- TABLA DE AMORTIZACIÓN Y DESCARGA ---
+    st.subheader("📋 Tabla de Amortización Dinámica")
+    
+    # Formatear la tabla para mostrarse bonita en la web
+    df_formatted = df.copy()
+    for col in ["Cuota Fija", "Interés del Mes", "Abono a Capital", "Saldo Restante"]:
+        df_formatted[col] = df_formatted[col].apply(lambda x: f"${x:,.0f}")
+    
+    st.dataframe(df_formatted.set_index("Mes"), use_container_width=True)
+
+    # Botón para descargar en CSV (Excel)
+    csv = df.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="📥 Descargar Tabla de Amortización (CSV)",
+        data=csv,
+        file_name='tabla_amortizacion.csv',
+        mime='text/csv',
+    )
